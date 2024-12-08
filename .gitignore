@@ -1,0 +1,5 @@
+# Ignore the faiss_index folder (and all its contents)
+faiss_index/
+
+# Ignore a specific file (processed_documents.json)
+processed_documents.json

@@ -136,9 +136,22 @@ def load_llama_model():
     print("LLaMA model and tokenizer loaded successfully.")
     return tokenizer, model
 
+def clean_response(response):
+    """Remove context and user inputs from the response."""
+    if "Advisor:" in response:
+        response = response.split("Advisor:")[1]  # Get only the part after Advisor:
+
+    if "User:" in response:
+        response = response.split("User:")[0]  # Remove anything that was hallucinated after User:
+        
+    return response.strip()
+
 def generate_response(context, question, tokenizer, model):
     """Generate a response using LLaMA with the user's question and context."""
-    prompt = f"This is a conversation between a user and an AI advisor. The advisor only responds to user questions.\n\nUser: {question}\nAdvisor:"
+    prompt = (
+        f"You are a helpful advisor. Use the following context to answer the user's question.\n\n"
+        f"Context: {context}\n\nUser Question: {question}\n\nAdvisor:"
+    )
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
@@ -163,7 +176,7 @@ def chat_loop():
     
     # Load models and vector store
     #vector_store = create_vector_store()
-    vector_store = load_vector_store()
+    vector_store = create_vector_store()
     tokenizer, model = load_llama_model()
     
     while True:
@@ -182,7 +195,7 @@ def chat_loop():
         
         # Step 2: Generate the advisor's response using LLaMA
         response = generate_response(context, user_input, tokenizer, model)
-        
+        response = clean_response(response)
         print("\nAdvisor:", response)
 
 

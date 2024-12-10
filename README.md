@@ -6,14 +6,6 @@
 
 https://1drv.ms/f/c/47f1a052df4b660d/Ep9bkh037vtCs_ulCpeBBc0BIjIoWyUZg9cwXQ2rT8xkVQ?e=4Wmzwm
 
-in the chat loop funciton, on first run, change 
-
-vector_store = load_vector_store()
-tokenizer, model = load_llama_model()
-
-to
-vector_store = create_vector_store()
-tokenizer, model = load_llama_model()
 
 # make sure all packages are installed,
 i forgot which ones are needed. just install the onese at the top, and run it a couple of times for other dependencies it says you need.

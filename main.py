@@ -12,24 +12,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from transformers import LlamaForCausalLM, AutoTokenizer
 
 
-excluded_url_patterns = [
-    "titansgive.fullerton",
-    "giveto.fullerton",
-    "give.fullerton.edu"
-]
-# MongoDB $not with $regex for multiple patterns
-query = {
-    "$and": [
-        {
-            "url": {
-                "$not": {
-                    "$regex": f"({'|'.join(excluded_url_patterns)})"
-                    }           
-                }   
-        }
-    ]
-}
-
 print("connecting to mongo")
 try:
     client = MongoClient(MONGO_HOST, MONGO_PORT)
@@ -37,15 +19,15 @@ try:
     collection = db[NEW_MONGO_COLLECTION]
 
 
-    filtered_documents = collection.find(query)
-    print(collection.count_documents(query))
+    filtered_documents = collection.find()
+    print(collection.count_documents())
     print("connected")
 except Exception as e:
     print(e)
     
 
 def preprocess_document(doc):
-    """Extracts and cleans text content from a MongoDB document."""
+    #Cleans text from documents
     extracted_text = []
     for data_entry in doc.get("data", []):
         head = ' '.join(data_entry.get("head", []))
@@ -56,33 +38,29 @@ def preprocess_document(doc):
     return ' '.join(extracted_text)
 
 def preprocess_documents(documents):
+    #Preprocesses all the documents
     extracted_documents = []
     for document in documents:
         extracted_documents.append(preprocess_document(document))
     return extracted_documents
 
 def load_processed_documents():
-    """Load processed documents from file if they exist."""
+    #Load Processed documents from file if it exists
     if os.path.exists(PROCESSED_DOCS_FILE):
         with open(PROCESSED_DOCS_FILE, 'r') as file:
             return json.load(file)
     return {}
 
 def save_processed_documents(processed_docs):
-    """Save processed documents to a file."""
+    #Save the Processed documents to a file
     with open(PROCESSED_DOCS_FILE, 'w') as file:
         json.dump(processed_docs, file)
 
 
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-def embed_content(cleaned_text):
-    """Create an embedding for the document's cleaned content."""
-    embedding = embedding_model.encode(cleaned_text)
-    return embedding
-
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 def create_vector_store(force_rebuild=False):
-    """Generate and store embeddings for all documents in FAISS."""
+    #Create and Store Embeddings for documents in FAISS
+    #Checks to see if a FAISS already exists
     if os.path.exists(FAISS_INDEX_DIR) and not force_rebuild:
         print("FAISS vector store already exists. Loading it instead of creating it.")
         return load_vector_store()
@@ -99,8 +77,6 @@ def create_vector_store(force_rebuild=False):
 
     texts = list(processed_docs.values())
     metadatas = [{"url": url} for url in processed_docs.keys()]
-
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vector_store = FAISS.from_texts(texts, embeddings, metadatas)
     vector_store.save_local(FAISS_INDEX_DIR)
     print("FAISS vector store created and saved locally.")
@@ -108,22 +84,21 @@ def create_vector_store(force_rebuild=False):
 
 
 def load_vector_store():
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    """Load the stored FAISS vector store."""
+    #Loads the vecotr Store
     return FAISS.load_local(FAISS_INDEX_DIR, embeddings=embeddings, allow_dangerous_deserialization=True)
 
 def query_vector_store(question, vector_store):
-    """Query the vector store to find the most relevant content."""
+    #Queries the vector store for simialr documents
     results = vector_store.similarity_search(question, k=5)  # Retrieve top 5 most relevant documents
     context = "\n\n".join([result.page_content for result in results])
     return context
 
 def load_llama_model():
-    """Load the LLaMA model from HuggingFace."""
+    #Load the LLaMa model from Hugging Face
     print("Loading LLaMA model and tokenizer...")
     print(f"MODEL_NAME: {MODEL_NAME}, type: {type(MODEL_NAME)}")
 
+    #Check for GPU
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
@@ -137,17 +112,17 @@ def load_llama_model():
     return tokenizer, model
 
 def clean_response(response):
-    """Remove context and user inputs from the response."""
+    #Clean up the respone generated, removing Context and the user input
     if "Advisor:" in response:
-        response = response.split("Advisor:")[1]  # Get only the part after Advisor:
+        response = response.split("Advisor:")[1]
 
     if "User:" in response:
-        response = response.split("User:")[0]  # Remove anything that was hallucinated after User:
-        
+        response = response.split("User:")[0] 
+
     return response.strip()
 
 def generate_response(context, question, tokenizer, model):
-    """Generate a response using LLaMA with the user's question and context."""
+    #Generates a response using LLama based on Queesiton and context
     prompt = (
         f"You are a helpful advisor. Use the following context to answer the user's question.\n\n"
         f"Context: {context}\n\nUser Question: {question}\n\nAdvisor:"
@@ -156,6 +131,7 @@ def generate_response(context, question, tokenizer, model):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
     
+    #Token limit to increase responsiveness on my device
     output = model.generate(
         inputs.input_ids, 
         attention_mask=inputs.attention_mask, 
@@ -163,22 +139,17 @@ def generate_response(context, question, tokenizer, model):
         temperature=0.7,
         pad_token_id=tokenizer.pad_token_id
     )
-    
     response = tokenizer.decode(output[0], skip_special_tokens=True)
     return response
 
-
-
 def chat_loop():
-    """Interactive chat loop for the advisor chatbot."""
-    print("Welcome to the Fullerton Advisor Chatbot!")
-    print("Ask me any question related to CS at Fullerton. Type 'exit' to end.")
-    
+    #The loop for the chat advisor
     # Load models and vector store
-    #vector_store = create_vector_store()
     vector_store = create_vector_store()
     tokenizer, model = load_llama_model()
     
+    print("Welcome to the Fullerton Advisor Chatbot!")
+    print("Ask me any question related to CS at Fullerton. Type 'exit' to end.")
     while True:
         user_input = input("\nYou: ")
         if user_input.lower() == 'exit':
@@ -190,11 +161,12 @@ def chat_loop():
             vector_store = create_vector_store(force_rebuild=True)
             continue
         
-        # Step 1: Get relevant context from vector store
+        #Get Context
         context = query_vector_store(user_input, vector_store)
         
-        # Step 2: Generate the advisor's response using LLaMA
+        #Generate the advisor's response
         response = generate_response(context, user_input, tokenizer, model)
+        #Clean the response
         response = clean_response(response)
         print("\nAdvisor:", response)
 
